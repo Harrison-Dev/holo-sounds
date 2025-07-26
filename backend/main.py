@@ -2,9 +2,11 @@ import asyncio
 import uuid
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .models import DownloadRequest, DownloadResponse, TaskStatus, ProcessRequest
 from .download_worker import QUEUE, TASKS, start_download_worker
@@ -38,11 +40,14 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="YouTube Audio Editor",
-    description="Download and edit YouTube audio clips",
-    version="0.1.0",
+    title="Holo-Sounds Audio Editor",
+    description="Download and edit audio clips",
+    version="0.2.0",
     lifespan=lifespan
 )
+
+# API Router should be defined before mounting static files
+api_router = app.router
 
 # Configure CORS for frontend communication
 app.add_middleware(
@@ -54,13 +59,7 @@ app.add_middleware(
 )
 
 
-@app.get("/")
-async def root():
-    """Health check endpoint"""
-    return {"status": "ok", "service": "YouTube Audio Editor API"}
-
-
-@app.post("/download", response_model=DownloadResponse)
+@app.post("/api/download", response_model=DownloadResponse)
 async def download_audio(request: DownloadRequest):
     """Queue a YouTube audio download task"""
     try:
@@ -86,7 +85,7 @@ async def download_audio(request: DownloadRequest):
         raise HTTPException(status_code=500, detail=f"Failed to start download: {str(e)}")
 
 
-@app.get("/status/{task_id}", response_model=TaskStatus)
+@app.get("/api/status/{task_id}", response_model=TaskStatus)
 async def get_task_status(task_id: str):
     """Get the status of a download task"""
     task = TASKS.get(task_id)
@@ -100,13 +99,13 @@ async def get_task_status(task_id: str):
     )
 
 
-@app.post("/process")
+@app.post("/api/process")
 async def process_audio_endpoint(request: ProcessRequest):
     """Process audio with trim, fade, and denoise effects"""
     return await process_audio(request)
 
 
-@app.get("/audio/{task_id}")
+@app.get("/api/audio/{task_id}")
 async def get_audio_file(task_id: str):
     """Get the downloaded audio file for waveform display"""
     task = TASKS.get(task_id)
@@ -125,33 +124,20 @@ async def get_audio_file(task_id: str):
         filename=f"audio_{task_id}.m4a"
     )
 
+# --- Static file serving ---
+# This must be after all API routes
+static_folder = Path(__file__).parent.parent / "frontend" / "dist"
 
-@app.post("/cleanup")
-async def manual_cleanup():
-    """Manually trigger cleanup of old files"""
-    await cleanup_old_files()
-    return {"message": "Cleanup completed"}
+# Mount the static assets directory
+app.mount("/assets", StaticFiles(directory=static_folder / "assets"), name="assets")
 
-
-@app.get("/stats")
-async def get_stats():
-    """Get system statistics"""
-    import pathlib
-    tmp_dirs = list(pathlib.Path("/tmp").glob("*"))
-    task_dirs = [d for d in tmp_dirs if d.is_dir() and len(d.name) == 36 and d.name.count('-') == 4]
-    
-    total_size = 0
-    for task_dir in task_dirs:
-        for file in task_dir.rglob("*"):
-            if file.is_file():
-                total_size += file.stat().st_size
-    
-    return {
-        "active_tasks": len(TASKS),
-        "stored_directories": len(task_dirs),
-        "total_storage_mb": round(total_size / (1024 * 1024), 2),
-        "queue_size": QUEUE.qsize()
-    }
+@app.get("/{full_path:path}")
+async def serve_react_app(full_path: str):
+    """Serve the React application"""
+    index_path = static_folder / "index.html"
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="Frontend not built. Run `npm run build` in the frontend directory.")
+    return FileResponse(index_path)
 
 
 if __name__ == "__main__":

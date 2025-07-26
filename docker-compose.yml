@@ -1,24 +1,52 @@
 version: '3.8'
 
 services:
-  backend:
-    build: .
+  traefik:
+    image: "traefik:v2.10"
+    container_name: "traefik"
+    command:
+      # Enable Docker provider to automatically discover services
+      - "--providers.docker=true"
+      # Do not expose all containers by default
+      - "--providers.docker.exposedbydefault=false"
+      # Define the web entrypoint on port 80
+      - "--entrypoints.web.address=:80"
+      # Enable the API dashboard (for debugging)
+      - "--api.insecure=true"
     ports:
-      - "8080:8080"
+      # The HTTP port
+      - "80:80"
+      # The Traefik dashboard
+      - "8081:8080"
+    volumes:
+      # So that Traefik can listen to the Docker events
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - web
+
+  app:
+    build:
+      context: .
+    container_name: "holo-sounds-app"
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./backend:/app/backend
-      - /tmp:/tmp
-    command: uvicorn backend.main:app --host 0.0.0.0 --port 8080 --reload
+      - tmp_data:/tmp
+    networks:
+      - web
+    labels:
+      # Enable Traefik for this service
+      - "traefik.enable=true"
+      # Define the router rule based on the host
+      - "traefik.http.routers.holo-sounds.rule=Host(`holo-sound.harrison-chen.dev`)"
+      # Attach the router to the web (HTTP) entrypoint
+      - "traefik.http.routers.holo-sounds.entrypoints=web"
+      # Define the port the service is listening on internally
+      - "traefik.http.services.holo-sounds.loadbalancer.server.port=8080"
 
-  frontend:
-    image: node:20-alpine
-    working_dir: /app
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend:/app
-    command: sh -c "npm install && npm run dev -- --host"
-    environment:
-      - VITE_API_URL=http://localhost:8080
+networks:
+  web:
+    driver: bridge
+
+volumes:
+  tmp_data:
