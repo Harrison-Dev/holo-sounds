@@ -1,5 +1,10 @@
 version: '3.8'
 
+networks:
+  web:
+    external: true
+    name: traefik_web
+
 services:
   app:
     build:
@@ -8,26 +13,16 @@ services:
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
+      - TZ=Asia/Taipei
     volumes:
       - tmp_data:/tmp
-    # Connect this service to the existing Traefik network
     networks:
-      - traefik_proxy
+      - web
     labels:
-      # --- Traefik Labels --- 
       - "traefik.enable=true"
-      
-      # Define the HTTP router
       - "traefik.http.routers.holo-sounds.rule=Host(`holo-sound.harrison-chen.dev`)"
       - "traefik.http.routers.holo-sounds.entrypoints=web"
-      
-      # Define the service and its internal port
       - "traefik.http.services.holo-sounds.loadbalancer.server.port=8080"
 
 volumes:
   tmp_data:
-
-# Use the pre-existing external network created by your main Traefik instance
-networks:
-  traefik_web:
-    external: true
