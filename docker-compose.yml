@@ -29,5 +29,5 @@ volumes:
 
 # Use the pre-existing external network created by your main Traefik instance
 networks:
-  traefik_proxy:
+  traefik_web:
     external: true
