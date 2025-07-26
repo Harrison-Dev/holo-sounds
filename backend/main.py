@@ -47,7 +47,7 @@ app = FastAPI(
 # Configure CORS for frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Vite default ports
+    allow_origins=["*"],  # Allow all origins for deployment
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,22 +63,27 @@ async def root():
 @app.post("/download", response_model=DownloadResponse)
 async def download_audio(request: DownloadRequest):
     """Queue a YouTube audio download task"""
-    task_id = str(uuid.uuid4())
+    try:
+        task_id = str(uuid.uuid4())
+        
+        # Create task entry
+        TASKS[task_id] = {
+            "task_id": task_id,
+            "url": str(request.url),
+            "state": "queued",
+            "error_message": None
+        }
+        
+        # Add to download queue
+        await QUEUE.put(task_id)
+        
+        logger.info(f"Created download task {task_id} for URL: {request.url}")
+        
+        return DownloadResponse(task_id=task_id)
     
-    # Create task entry
-    TASKS[task_id] = {
-        "task_id": task_id,
-        "url": str(request.url),
-        "state": "queued",
-        "error_message": None
-    }
-    
-    # Add to download queue
-    await QUEUE.put(task_id)
-    
-    logger.info(f"Created download task {task_id} for URL: {request.url}")
-    
-    return DownloadResponse(task_id=task_id)
+    except Exception as e:
+        logger.error(f"Error creating download task: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to start download: {str(e)}")
 
 
 @app.get("/status/{task_id}", response_model=TaskStatus)
