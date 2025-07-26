@@ -1,52 +1,33 @@
 version: '3.8'
 
 services:
-  traefik:
-    image: "traefik:v2.10"
-    container_name: "traefik"
-    command:
-      # Enable Docker provider to automatically discover services
-      - "--providers.docker=true"
-      # Do not expose all containers by default
-      - "--providers.docker.exposedbydefault=false"
-      # Define the web entrypoint on port 80
-      - "--entrypoints.web.address=:80"
-      # Enable the API dashboard (for debugging)
-      - "--api.insecure=true"
-    ports:
-      # The HTTP port
-      - "80:80"
-      # The Traefik dashboard
-      - "8081:8080"
-    volumes:
-      # So that Traefik can listen to the Docker events
-      - "/var/run/docker.sock:/var/run/docker.sock:ro"
-    networks:
-      - web
-
   app:
     build:
       context: .
     container_name: "holo-sounds-app"
+    restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
     volumes:
       - tmp_data:/tmp
+    # Connect this service to the existing Traefik network
     networks:
-      - web
+      - traefik_proxy
     labels:
-      # Enable Traefik for this service
+      # --- Traefik Labels --- 
       - "traefik.enable=true"
-      # Define the router rule based on the host
+      
+      # Define the HTTP router
       - "traefik.http.routers.holo-sounds.rule=Host(`holo-sound.harrison-chen.dev`)"
-      # Attach the router to the web (HTTP) entrypoint
       - "traefik.http.routers.holo-sounds.entrypoints=web"
-      # Define the port the service is listening on internally
+      
+      # Define the service and its internal port
       - "traefik.http.services.holo-sounds.loadbalancer.server.port=8080"
-
-networks:
-  web:
-    driver: bridge
 
 volumes:
   tmp_data:
+
+# Use the pre-existing external network created by your main Traefik instance
+networks:
+  traefik_proxy:
+    external: true
