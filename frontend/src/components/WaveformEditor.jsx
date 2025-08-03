@@ -7,13 +7,15 @@ const WaveformEditor = ({ audioUrl, onRegionUpdate }) => {
   const wavesurferRef = useRef(null);
   const regionsRef = useRef(null);
   const zoomLevelRef = useRef(1); // Use ref to avoid re-renders
+  const isLoopingRef = useRef(false);
+  const regionRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [region, setRegion] = useState(null);
   const [zoomDisplay, setZoomDisplay] = useState(100); // For display only
   const [totalDuration, setTotalDuration] = useState(0);
-  const [isLooping, setIsLooping] = useState(true);
+  const [isLooping, setIsLooping] = useState(false);
 
   useEffect(() => {
     if (!audioUrl || !containerRef.current) return;
@@ -32,6 +34,7 @@ const WaveformEditor = ({ audioUrl, onRegionUpdate }) => {
       minPxPerSec: 50,
       normalize: true,
       splitChannels: false,
+      autoScroll: false, // Disable auto-scroll during playback
     });
 
     // Initialize regions plugin
@@ -59,6 +62,7 @@ const WaveformEditor = ({ audioUrl, onRegionUpdate }) => {
       });
       
       setRegion(region);
+      regionRef.current = region;
       
       // Notify parent of initial region
       if (onRegionUpdate) {
@@ -73,17 +77,32 @@ const WaveformEditor = ({ audioUrl, onRegionUpdate }) => {
       const time = wavesurfer.getCurrentTime();
       setCurrentTime(time);
       
-      // Loop within region if playing and looping is enabled
-      if (isLooping && region && time >= region.end) {
-        wavesurfer.setTime(region.start);
+      // Check if we've reached the region end
+      const currentRegion = regionRef.current;
+      const currentIsLooping = isLoopingRef.current;
+      
+      if (currentRegion && time >= currentRegion.end) {
+        if (currentIsLooping) {
+          // Loop: jump back to region start and continue playing
+          wavesurfer.setTime(currentRegion.start);
+        } else {
+          // No loop: stop playback at region end
+          wavesurfer.pause();
+          wavesurfer.setTime(currentRegion.end);
+        }
       }
     });
 
     wavesurfer.on('play', () => setIsPlaying(true));
     wavesurfer.on('pause', () => setIsPlaying(false));
     wavesurfer.on('finish', () => {
-      if (isLooping && region) {
-        wavesurfer.setTime(region.start);
+      // This handles when the entire audio file finishes playing
+      // Our region-based stopping is handled in audioprocess event
+      const currentRegion = regionRef.current;
+      const currentIsLooping = isLoopingRef.current;
+      
+      if (currentIsLooping && currentRegion) {
+        wavesurfer.setTime(currentRegion.start);
         wavesurfer.play();
       }
     });
@@ -91,6 +110,7 @@ const WaveformEditor = ({ audioUrl, onRegionUpdate }) => {
     // Region update listener
     regions.on('region-updated', (updatedRegion) => {
       setRegion(updatedRegion);
+      regionRef.current = updatedRegion;
       if (onRegionUpdate) {
         onRegionUpdate({
           start: updatedRegion.start,
@@ -139,6 +159,11 @@ const WaveformEditor = ({ audioUrl, onRegionUpdate }) => {
       wavesurfer.destroy();
     };
   }, [audioUrl]);
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    isLoopingRef.current = isLooping;
+  }, [isLooping]);
 
   const handlePlayPause = () => {
     if (wavesurferRef.current && region) {

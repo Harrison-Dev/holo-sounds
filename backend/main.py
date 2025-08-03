@@ -121,7 +121,8 @@ async def get_audio_file(task_id: str):
     return FileResponse(
         path=audio_path,
         media_type="audio/mp4",
-        filename=f"audio_{task_id}.m4a"
+        filename=f"audio_{task_id}.m4a",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
     )
 
 # --- Static file serving ---
